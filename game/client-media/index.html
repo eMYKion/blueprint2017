@@ -19,6 +19,8 @@
       // create a camera object with device orientation and position (with height)
       const camHeight = 5;
       var camObj = {a:0, b:0, g:0, x:0, y:camHeight, z:0};
+			var camVel = new THREE.Vector3(0,0,0);
+			var inAir = false;
 			
       // send camera orientation (the rotation)
       function sendCamOri(){
@@ -45,18 +47,37 @@
       
       const renderer = new THREE.WebGLRenderer();
       const camera = new THREE.PerspectiveCamera(90, window.innerWidth/window.innerHeight, 1, 10000);
+			camera.position.set(0,300,0);
       const scene = new THREE.Scene();
       
       scene.add(camera);
+			
+			
+			var light = new THREE.PointLight( 0xff0000, 1, 100 );
+			// x, y, z
+			light.position.set( -100, 100, -100 );
+			scene.add( light );
+			
       
       var controls;   // device orientation controls
-      var model;      // json object loaded from GET request
       
-      var mesh;    // environment mesh file, THREE.mesh
+			//meshes
+      var level1;    // environment mesh file, THREE.mesh
+			var key;
+			var door;
+			
+			var win = new THREE.Mesh(new THREE.PlaneGeometry(8, 5), new THREE.MeshBasicMaterial({map:THREE.ImageUtils.loadTexture("/win_message.png")}));
+			var welcome = new THREE.Mesh(new THREE.PlaneGeometry(8, 5), new THREE.MeshBasicMaterial({map:THREE.ImageUtils.loadTexture("/welcome_message.png")}));
+			
+			camera.add(welcome);
+			welcome.position.set(0,0,-10);
+			
+			var hasKey = false;
+			var hasSaidHello = false;
       
       const loader = new THREE.JSONLoader();
       var xmlhttp = new XMLHttpRequest();
-      
+			
       // render and update position
       function render() {
 				
@@ -68,7 +89,6 @@
 					
 					var z = -((keyboardState.w || keyboardState.up) - (keyboardState.s || keyboardState.do));
 					var x = (keyboardState.d || keyboardState.ri) - (keyboardState.a || keyboardState.le);
-					var y = keyboardState.space - 1;
 					
          	//transform to world coordinates
 					
@@ -81,35 +101,74 @@
 					
          	var corrected = new THREE.Vector3(dir.x, 0, dir.z);
          	corrected = corrected.normalize();
-
-					//jumping and ray-tracing TODO
-					/*var ray = THREE.Raycaster(new THREE.Vector3(camera.position.x, camera.position.y, camera.position.z), new THREE.Vector3(0, -1, 0), 0, 100); //ray looking down
+					
+					
+					var gravity = 0.05;
+					
+					camVel.x = corrected.x;
+					camVel.z = corrected.z;
+					
+					
+					//jumping and ray-tracing 
+					var ray = new THREE.Raycaster(camera.position, new THREE.Vector3(0, -1, 0), 0, camHeight);
+					
 					var intersects = ray.intersectObjects(scene.children, true);
-
-					if (intersects != null) {
-						var maxIndex = 0;
-						for (var i = 0; i < intersects.length; i++) {
-							if (intersects[i] > intersects[maxIndex]) {
-								maxIndex = i;
-							}
+					
+					if (intersects.length == 0) {
+						inAir = true;
+						camera.position.y += camVel.y;
+					}else{
+						inAir = false;
+						camera.position.y = intersects[0].point.y + camHeight;
+					}
+					
+					if(camera.position.y < -10){
+						camera.position.set(0,200,0);
+						camVel.y = 0;
+					}
+					
+					camera.position.x += camVel.x;
+					camera.position.z += camVel.z;
+					
+					if (!inAir) {
+						camVel.y = keyboardState.space;
+						if (keyboardState.space == 1){
+							camera.position.y += .001;
+							
 						}
-
-						if (camera.position.y > camHeight + intersects[maxIndex]) {
-							camera.position.y += y;
-						} else {
-							camera.position.y = camHeight + intersects[maxIndex];
+						if (keyboardState.space == 1) {
+							console.log("SHOULD JUMP");
 						}
 					} else {
-						camera.position.y += y;
-					}*/
-					camera.position.y = camHeight;
-					camera.position.x += corrected.x * 2;
-					camera.position.z += corrected.z * 2;
-					
-					if (camera.position.y < -10) { //restart
-						camera.position.set(new THREE.Vector3(0, 0, 0));
+						camVel.y -= gravity;
 					}
-      	}
+					
+      	}//end of cases
+				
+				//for all clients
+				if(camera.position.distanceTo(new THREE.Vector3(0, 92, 0)) > 10 && !hasSaidHello){
+					hasSaidHello = true;
+					camera.remove(welcome);
+				}
+				
+				if(camera.position.distanceTo(key.position) < 5){
+					hasKey = true;
+					scene.remove(key);
+					camera.add(key);
+					key.scale.set(0.05, 0.05, 0.05);
+					key.position.set(1,-2,-3);
+					key.rotation.set(0,Math.PI/2,0);
+					
+				}
+				if(hasKey && camera.position.distanceTo(door.position) < 5){
+					camera.add(win);
+					win.position.set(0,0,-10);
+					camera.remove(key);
+					door.add(key);
+					key.position.set(0,-0.1,0);
+					key.rotation.set(1.57, -3.14, 1.57);
+					
+				}
 
        renderer.render(scene, camera);
        window.requestAnimationFrame(render);
@@ -150,21 +209,66 @@
         //var plane = new THREE.Mesh( geometry, material );
         //plane.rotation.x = Math.PI/2;
         //scene.add( plane );
-
+				
 				//get a json model from the server
+				
         xmlhttp.onreadystatechange = function() {
           if (this.readyState == 4 && this.status == 200) {
             var json = JSON.parse(this.responseText);
-            model = loader.parse(json);
-            mesh = new THREE.Mesh( model.geometry, new THREE.MeshBasicMaterial({color:0x11aa11}) );
-            
-            scene.add( mesh );
+           	var model = loader.parse(json);
+						// var shinyMaterial = new THREE.MeshLambertMaterial({color:0x2194ce, alphaMap: 0.5});
+            level1 = new THREE.Mesh( model.geometry, new THREE.MeshBasicMaterial({color:0x11aa11, wireframe: true}) );
+						
+						level1.scale.x = 20;
+						level1.scale.y = 20;
+						level1.scale.z = 20;
+						level1.position.set(0,100,0);
+     
+            scene.add(level1);
           }
         };
-        
-        xmlhttp.open("GET", "/level3.json", true);
+				
+				xmlhttp.open("GET", "/level3.json", false);
         xmlhttp.send();
 				
+				xmlhttp.onreadystatechange = function(){
+          if (this.readyState == 4 && this.status == 200) {
+            var json = JSON.parse(this.responseText);
+            var model = loader.parse(json);
+						// var shinyMaterial = new THREE.MeshLambertMaterial({color:0x2194ce, alphaMap: 0.5});
+            key = new THREE.Mesh( model.geometry, new THREE.MeshBasicMaterial({color:0xaaaa11}) );
+						
+						key.scale.x = 0.9;
+						key.scale.y = 0.9;
+						key.scale.z = 0.9;
+						key.position.set(-261,226,62);
+     
+            scene.add(key);
+          }
+        };
+				
+				xmlhttp.open  ("GET", "/key.json", false);
+				xmlhttp.send();
+				
+				xmlhttp.onreadystatechange = function(){
+          if (this.readyState == 4 && this.status == 200) {
+            var json = JSON.parse(this.responseText);
+            var model = loader.parse(json);
+						// var shinyMaterial = new THREE.MeshLambertMaterial({color:0x2194ce, alphaMap: 0.5});
+            door = new THREE.Mesh( model.geometry, new THREE.MeshBasicMaterial({color:0x4444ff, wireframe: true}) );
+						
+						door.scale.x = 4;
+						door.scale.y = 4;
+						door.scale.z = 4;
+						door.position.set(43, 55, 138);
+     
+            scene.add(door);
+          }
+        };
+				
+				xmlhttp.open  ("GET", "/door.json", false);
+				xmlhttp.send();
+
         window.requestAnimationFrame(render);
         
 				//if mobile client, control camera with deviceorientationcontroller and the server's cam obj
@@ -276,10 +380,10 @@
    
 			if (isMobile()) {//if mobile, then send the server my camera orientation
 				//(server will ignore me if im not the chosen mobile player (see server.js))
-        setInterval(sendCamOri, 100);
+        setInterval(sendCamOri, 50);
       }else{//if non-mobile, then send server my camera position
 				//(server will ignore me if im not the chosen non-mobile player (see server.js))  
-				setInterval(sendCamPos, 100);
+				setInterval(sendCamPos, 50);
 			}
 			
 			startView(); 

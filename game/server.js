@@ -71,8 +71,20 @@ app.get("/key.json", function(req, res){
   res.sendFile(serverConfig.cwd + "/client-media/models/key.json");
 });
 
+app.get("/door.json", function(req, res){
+  res.sendFile(serverConfig.cwd + "/client-media/models/door.json");
+});
+
 app.get("/DeviceOrientationController.js", function(req, res){
   res.sendFile(serverConfig.cwd + "/client-media/DeviceOrientationController.js");
+});
+
+app.get("/win_message.png", function(req, res){
+  res.sendFile(serverConfig.cwd + "/client-media/models/win_message.png");
+});
+
+app.get("/welcome_message.png", function(req, res){
+  res.sendFile(serverConfig.cwd + "/client-media/models/welcome_message.png");
 });
 
 //let's handle each socket connection
@@ -134,10 +146,12 @@ io.on(eventConstants.CONNECT, function(socket){
     
     if(ans.ismobile && playerMobile == null){
       playerMobile = socket;
+      console.log("set new mobile player");
     }
     
     if(!ans.ismobile && playerNonMobile == null){
       playerNonMobile = socket;
+      console.log("set new non-mobile player");
     }
   });// end of c2s_client_mobile_state handler
   
@@ -152,10 +166,15 @@ io.on(eventConstants.CONNECT, function(socket){
     
     //if non-mobile player is sending cam data, listen to position
     if(playerNonMobile!=null && getIpCombo(socket) == getIpCombo(playerNonMobile)){
+      
+      //console.log("useful alert log fjkl;efl;kwejl;kf;kj");
+      
       cameraObject.x = cam.x;
       cameraObject.y = cam.y;
       cameraObject.z = cam.z;
     }
+    
+ 
     
     io.sockets.emit(eventConstants.S2C, cameraObject);
   });//end of clientToServer handler
