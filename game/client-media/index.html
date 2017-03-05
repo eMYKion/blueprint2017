@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html>  
+	
+  <head>
+  </head>
+	
+  <body>
+    <script src = "/client-constants.js"></script>
+    <script src = "/socket.io.min.js"></script>
+    <script src = "/three.min.js"></script>
+    <script src = "/DeviceOrientationController.js"></script>
+    
+    <div id = "spectatorView">
+    </div>
+		<script>
+    	// make socket connection with server that served html page
+			var socket = io();
+      
+      // create a camera object with device orientation and position (with height)
+      const camHeight = 5;
+      var camObj = {a:0, b:0, g:0, x:0, y:camHeight, z:0};
+			
+      // send camera orientation (the rotation)
+      function sendCamOri(){
+        camObj.a = camera.rotation.z;
+        camObj.b = camera.rotation.x;
+        camObj.g = camera.rotation.y;
+        
+        socket.emit (eventConstants.C2S, camObj);
+      }
+      // send camera position
+      function sendCamPos(){
+        camObj.x = camera.position.x;
+        camObj.y = camera.position.y;
+        camObj.z = camera.position.z;
+        
+        socket.emit (eventConstants.C2S, camObj);
+      }
+
+      const wasdKey = {w:87, a:65, s:83, d:68};
+      const uldrKey = {up:38, le:37, do:40, ri:39};
+      const otherKeys = {space:32, shift:16};
+      var keyboardState = {w:0, a:0, s:0, d:0, up:0, le:0, do:0, ri:0, space:0, shift:0};
+      
+      
+      const renderer = new THREE.WebGLRenderer();
+      const camera = new THREE.PerspectiveCamera(90, window.innerWidth/window.innerHeight, 1, 10000);
+      const scene = new THREE.Scene();
+      
+      scene.add(camera);
+      
+      var controls;   // device orientation controls
+      var model;      // json object loaded from GET request
+      
+      var mesh;    // environment mesh file, THREE.mesh
+      
+      const loader = new THREE.JSONLoader();
+      var xmlhttp = new XMLHttpRequest();
+      
+      // render and update position
+      function render() {
+				
+      	if (isMobile()) {
+					
+        	controls.update();
+					
+      	} else {
+					
+					var z = -((keyboardState.w || keyboardState.up) - (keyboardState.s || keyboardState.do));
+					var x = (keyboardState.d || keyboardState.ri) - (keyboardState.a || keyboardState.le);
+					var y = keyboardState.space - 1;
+					
+         	//transform to world coordinates
+					
+         	var pLocal = new THREE.Vector3(x, 0, z); //in front of camera
+					
+         	var pWorld = pLocal.applyMatrix4(camera.matrixWorld);
+					
+					
+         	var dir = pWorld.sub(camera.position).normalize();
+					
+         	var corrected = new THREE.Vector3(dir.x, 0, dir.z);
+         	corrected = corrected.normalize();
+
+					//jumping and ray-tracing TODO
+					/*var ray = THREE.Raycaster(new THREE.Vector3(camera.position.x, camera.position.y, camera.position.z), new THREE.Vector3(0, -1, 0), 0, 100); //ray looking down
+					var intersects = ray.intersectObjects(scene.children, true);
+
+					if (intersects != null) {
+						var maxIndex = 0;
+						for (var i = 0; i < intersects.length; i++) {
+							if (intersects[i] > intersects[maxIndex]) {
+								maxIndex = i;
+							}
+						}
+
+						if (camera.position.y > camHeight + intersects[maxIndex]) {
+							camera.position.y += y;
+						} else {
+							camera.position.y = camHeight + intersects[maxIndex];
+						}
+					} else {
+						camera.position.y += y;
+					}*/
+					camera.position.y = camHeight;
+					camera.position.x += corrected.x * 2;
+					camera.position.z += corrected.z * 2;
+					
+					if (camera.position.y < -10) { //restart
+						camera.position.set(new THREE.Vector3(0, 0, 0));
+					}
+      	}
+
+       renderer.render(scene, camera);
+       window.requestAnimationFrame(render);
+     };//end of render definition
+      
+      // check if the client is a mobile device or not
+			function isMobile() {
+				if(navigator.userAgent.match(/Android/i) ||
+						navigator.userAgent.match(/weOS/i) ||
+						navigator.userAgent.match(/iPhone/i) ||
+						navigator.userAgent.match(/iPad/i) ||
+						navigator.userAgent.match(/iPod/i) ||
+						navigator.userAgent.match(/BlackBerry/i) ||
+						navigator.userAgent.match(/Windows Phone/i)){
+					return true;
+				}else{
+					return false;
+				}
+			}
+			
+			socket.on(eventConstants.S2C_IS_CLIENT_MOBILE, function(){
+				socket.emit(eventConstants.C2S_CLIENT_MOBILE_STATE, {ismobile:isMobile()});
+			});
+      
+      // start a three.js scene and render
+      function startView(){
+        
+        // Start the renderer.
+        renderer.setSize(window.innerWidth, window.innerHeight);
+
+        // Attach the renderer-supplied
+        // DOM element.
+        document.getElementById("spectatorView").appendChild(renderer.domElement);
+        
+        // adding a red plane to the scene (EDITED OUT, NOT NEEDED ANY MORE)
+        //var geometry = new THREE.PlaneGeometry( 100, 100 );
+        //var material = new THREE.MeshBasicMaterial( {color: 0xaa1100, side: THREE.DoubleSide} );
+        //var plane = new THREE.Mesh( geometry, material );
+        //plane.rotation.x = Math.PI/2;
+        //scene.add( plane );
+
+				//get a json model from the server
+        xmlhttp.onreadystatechange = function() {
+          if (this.readyState == 4 && this.status == 200) {
+            var json = JSON.parse(this.responseText);
+            model = loader.parse(json);
+            mesh = new THREE.Mesh( model.geometry, new THREE.MeshBasicMaterial({color:0x11aa11}) );
+            
+            scene.add( mesh );
+          }
+        };
+        
+        xmlhttp.open("GET", "/level3.json", true);
+        xmlhttp.send();
+				
+        window.requestAnimationFrame(render);
+        
+				//if mobile client, control camera with deviceorientationcontroller and the server's cam obj
+				if(isMobile()){
+					
+					controls = new DeviceOrientationController(camera, renderer.domElement);
+        	controls.connect();
+					
+					socket.on(eventConstants.S2C, function(cam){
+							camera.position.x = cam.x;
+							camera.position.y = cam.y;
+							camera.position.z = cam.z;
+					});
+					
+				}else{//if I am a non-mobile client, listen to cam orientation
+          
+					
+					// check if keys are down, and update keyboardState to reflect new state
+          window.addEventListener("keydown", function(event){
+            
+            switch(event.keyCode){
+              case(wasdKey.up):
+                keyboardState.up = 1;
+                break;
+              case(wasdKey.le):
+                keyboardState.le = 1;
+                break;
+              case(wasdKey.do):
+                keyboardState.do = 1;
+                break;
+              case(wasdKey.ri):
+                keyboardState.ri = 1;
+                break;
+                
+              case(wasdKey.w):
+                keyboardState.w = 1;
+                break;
+              case(wasdKey.a):
+                keyboardState.a = 1;
+                break;
+              case(wasdKey.s):
+                keyboardState.s = 1;
+                break;
+              case(wasdKey.d):
+                keyboardState.d = 1;
+                break;
+                
+              case(otherKeys.space):
+                keyboardState.space = 1;
+                break;
+              case(otherKeys.shift):
+                keyboardState.shift = 1;
+                break;
+                
+              default:
+                break;
+            }
+          });
+          // check if keys are up, and update keyboardState to reflect new state
+          window.addEventListener("keyup", function(event){
+            switch(event.keyCode){
+              case(wasdKey.up):
+                keyboardState.up = 0;
+                break;
+              case(wasdKey.le):
+                keyboardState.le = 0;
+                break;
+              case(wasdKey.do):
+                keyboardState.do = 0;
+                break;
+              case(wasdKey.ri):
+                keyboardState.ri = 0;
+                break;
+                
+              case(wasdKey.w):
+                keyboardState.w = 0;
+                break;
+              case(wasdKey.a):
+                keyboardState.a = 0;
+                break;
+              case(wasdKey.s):
+                keyboardState.s = 0;
+                break;
+              case(wasdKey.d):
+                keyboardState.d = 0;
+                break;
+              
+              case(otherKeys.space):
+                keyboardState.space = 0;
+                break;
+              case(otherKeys.shift):
+                keyboardState.shift = 0;
+                break;
+              
+              default:
+                break;
+            }
+          });
+					
+					socket.on(eventConstants.S2C, function(cam){
+							
+							camera.rotation.z = cam.a;
+							camera.rotation.x = cam.b;
+							camera.rotation.y = cam.g;	
+				  });
+				}
+				
+      }//end of startView() definition
+   
+			if (isMobile()) {//if mobile, then send the server my camera orientation
+				//(server will ignore me if im not the chosen mobile player (see server.js))
+        setInterval(sendCamOri, 100);
+      }else{//if non-mobile, then send server my camera position
+				//(server will ignore me if im not the chosen non-mobile player (see server.js))  
+				setInterval(sendCamPos, 100);
+			}
+			
+			startView(); 
+			
+    </script>
+  </body>
+</html>
